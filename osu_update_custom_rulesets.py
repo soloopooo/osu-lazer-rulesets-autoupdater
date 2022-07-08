@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 # @author: soloopooo, github: https://github.com/soloopooo
-# last modify time: 2021/11/26 18:33 CST
+# last modify time: 2022/07/08 20:17 CST
 
 # How to use this python script:
 # Install dependencies: pip install requests bs4
@@ -18,16 +18,22 @@
 import requests
 from bs4 import BeautifulSoup
 import time
+import os
+import json
 
 from requests.exceptions import RequestException
 
-RETRY_NUM = 5 # The max retries.
-DEBUG = False # For Debugging.
-FOLDER = 'D:\\osulazer\\rulesets\\' # Change this to your own osu! rulesets folder. Please use '\\' as '\'.
+requests.packages.urllib3.disable_warnings()
+RETRY_NUM = 5  # The max retries.
+DEBUG = False  # For Debugging.
+# Change this to your own osu! rulesets folder. Please use '\\' as '\'.
+FOLDER = 'D:\\osulazer\\rulesets\\'
+# Change this to your proxy. If no need, simply let this = {}.
+PROXY = {"http": "http://127.0.0.1:7890", "https": "http://127.0.0.1:7890"}
 
 
 def download(url):
-    respon = requests.get(url, stream=True)
+    respon = requests.get(proxies=PROXY, url=url, stream=True, verify=False)
     version = url.split('/')[7]
     size = 0
     chunk_size = 1024
@@ -70,14 +76,27 @@ def download(url):
 
 def printlog(msg, type, flush=False, end='\n', begin=''):
     lctime = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
-    print(begin+lctime + " ["+type+"] " + str(msg), flush=flush, end=end)
+    if type == "Info":
+        color = "32m"
+    elif type == "Error":
+        color = "31m"
+    elif type == "Warning":
+        color = "33m"
+    else:
+        color = "0m"
+
+    msg_full = begin+"\033[1;35m"+lctime+"\033[0m" + \
+        " [\033[1;"+color+type+"\033[0m] "+str(msg)+"\033[0m"
+    terminal = os.get_terminal_size()
+    print((msg_full + " "*(terminal.columns - len(msg_full)-len(end)+1)),
+          flush=flush, end=end)
 
 
 def convert_link(mode_link, source):
     link_head = "https://"
     link_end = ""
     if source == "github":
-        link_head = "https://github.com"
+        link_head = "https://api.github.com/repos"
         link_end = "/releases/latest"
     link = link_head + mode_link + link_end
     return link
@@ -85,28 +104,25 @@ def convert_link(mode_link, source):
 
 def update(link, source='github'):
     j = RETRY_NUM
+
     def try_get(j):
         try:
-            res = requests.get(link)
+            res = requests.get(proxies=PROXY, url=link, verify=False)
             res.encoding = 'utf-8'
             if res.status_code == 200:
                 printlog("Success in getting contents", "Info")
-                soup = BeautifulSoup(res.content, features="lxml")
-                row = soup.select(
-                    'html > body > div.application-main > div > main#js-repo-pjax-container > div > div > div > div.Box > div >div.mb-3>details>div>div>ul>li.Box-row>a')
+                row = res.text
+                row_json = json.loads(row)
                 if DEBUG:
                     print(row)
-                for i in row:
-                    if i['href'].__contains__('dll'):
-                        prep_link = i['href']
-                        break
                 if source == 'github':
-                    final_link = 'https://github.com'+prep_link
+                    prep_link = row_json["assets"][0]["browser_download_url"]
+                    final_link = prep_link
                 download(final_link)
             else:
                 j = j - 1
-                printlog("Failed to get, retrying, left " +
-                         str(j)+" time(s)", "Warning")
+                printlog("Failed to get, retrying, left \033[1;31m" +
+                         str(j)+"\033[0m time(s)", "Warning")
                 time.sleep(2)
                 if j >= 0:
                     try_get(j)
@@ -116,8 +132,8 @@ def update(link, source='github'):
             j = j - 1
             printlog(e, "Error")
             if j >= 0:
-                printlog("Failed to get, retrying, left " +
-                        str(j)+" time(s)", "Warning")
+                printlog("Failed to get, retrying, left \033[1;31m" +
+                         str(j)+"\033[0m time(s)", "Warning")
                 time.sleep(2)
                 try_get(j)
     try_get(j)
@@ -127,7 +143,8 @@ def trueupdate(uri, source):
     update(convert_link(uri, source=source))
 
 
-if __name__ == '__main__': # Add your custom rulesets link here. use trueupdate(uri,source).
+# Add your custom rulesets link here. use trueupdate(uri,source).
+if __name__ == '__main__':
     trueupdate('/karaoke-dev/karaoke', 'github')
     trueupdate('/EVAST9919/bosu', 'github')
     trueupdate('/LumpBloom7/sentakki', 'github')
